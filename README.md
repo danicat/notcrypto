@@ -10,8 +10,11 @@ Secondly, all the good Go developer positions get lost in the noise of crypto re
 
 | Company Name | Industry | Twitter | Careers Site | Visa Sponsorship | Notes |
 |--------------|----------|---------|--------------|------------------|-------|
+| Ably | Analytics | | https://ably.com/careers | ??? | |
+| Deliveroo | Deliveries | https://twitter.com/deliverooeng | https://careers.deliveroo.co.uk/ | ??? | |
+| GoCardless | Financial Services | https://twitter.com/GoCardlessEng | https://gocardless.com/about/careers/ | Yes | Mostly a ruby shop, minor usage in some teams|
+| Incident IO | Observability | https://twitter.com/incident_io | https://incident.io/careers/ | ??? | |
+| Monzo | Financial Services | https://twitter.com/MakingMonzo | https://monzo.com/careers/ | Yes | |
 | Red Hat | Technology | | https://www.redhat.com/en/jobs | ??? | |
 | Utility Warehouse | Utilities | | https://uw.co.uk/about-us/careers | Yes | |
-| Ably | Analytics | | https://ably.com/careers | ??? | |
-| Incident IO | Observability | https://twitter.com/incident_io | https://incident.io/careers/ | ??? | |
-| Deliveroo | Deliveries | https://twitter.com/deliverooeng | https://careers.deliveroo.co.uk/ | ??? | |
+
