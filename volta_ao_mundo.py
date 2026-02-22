@@ -227,9 +227,9 @@ def run_matchup(strat1, strat2, iterations=5000):
 if __name__ == "__main__":
     print("Running simulations...")
     results = [
-        run_matchup('tiered', 'tiered', 5000),
-        run_matchup('tiered', 'random', 5000),
-        run_matchup('random', 'random', 5000)
+        run_matchup('tiered', 'tiered', 10000),
+        run_matchup('tiered', 'random', 10000),
+        run_matchup('random', 'random', 10000)
     ]
     df = pd.DataFrame(results)
     print("\n--- Simulation Results ---")
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     # 1. Stalemate Rates
     plt.figure(figsize=(10, 6))
     sns.barplot(x='Matchup', y='Stalemates', data=df)
-    plt.title('Stalemate Count by Matchup (5000 Games)')
+    plt.title('Stalemate Count by Matchup (10000 Games)')
     plt.ylabel('Number of Stalemates')
     plt.tight_layout()
     plt.savefig('stalemate_comparison.png')
