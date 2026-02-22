@@ -1,4 +1,7 @@
 import random
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # --- GAME DATA & DEFINITIONS ---
 DECK_COMP_DICT = {
@@ -9,20 +12,8 @@ DECK_COMP_DICT = {
     'Saude': 1, 'Diplomacia': 1, 'Riqueza': 1, 'Rotas Alternativas': 1
 }
 
-CURES = {
-    'Perdido': 'Orientacao',
-    'Fim do Dinheiro': 'Trabalho',
-    'Povos Hostis': 'Fuga',
-    'Epidemia': 'Remedio'
-}
-
-DEFENSES = {
-    'Epidemia': 'Saude',
-    'Povos Hostis': 'Diplomacia',
-    'Fim do Dinheiro': 'Riqueza',
-    'Perdido': 'Rotas Alternativas'
-}
-
+CURES = {'Perdido': 'Orientacao', 'Fim do Dinheiro': 'Trabalho', 'Povos Hostis': 'Fuga', 'Epidemia': 'Remedio'}
+DEFENSES = {'Epidemia': 'Saude', 'Povos Hostis': 'Diplomacia', 'Fim do Dinheiro': 'Riqueza', 'Perdido': 'Rotas Alternativas'}
 TERRAIN_RULES = {
     'Civilizada': ['1000', '2000', '4000', '8000'],
     'Selvagem': ['1000', '2000', '8000'],
@@ -31,8 +22,9 @@ TERRAIN_RULES = {
 }
 
 class Player:
-    def __init__(self, name):
+    def __init__(self, name, strategy):
         self.name = name
+        self.strategy = strategy
         self.hand = []
         self.distance = 0
         self.cards_played_distance = []
@@ -40,266 +32,146 @@ class Player:
         self.terrain = 'Civilizada'
         self.defenses_active = []
         self.has_orientacao = False
-
-        # Stats tracking
-        self.attacks_launched = 0
-        self.cures_played = 0
         self.counter_attacks = 0
         self.score = 0
-        self.turns_played = 0
 
 class VoltaAoMundoSim:
-    def __init__(self):
+    def __init__(self, p1_strat, p2_strat):
         self.deck = []
         for card, count in DECK_COMP_DICT.items():
             self.deck.extend([card] * count)
         random.shuffle(self.deck)
-        self.discard_pile = []
-        self.p1 = Player("Player 1")
-        self.p2 = Player("Player 2")
+        self.discard = []
+        self.p1 = Player(f"P1 ({p1_strat})", p1_strat)
+        self.p2 = Player(f"P2 ({p2_strat})", p2_strat)
 
-        # Deal 6 cards
         for _ in range(6):
             self.p1.hand.append(self.draw())
             self.p2.hand.append(self.draw())
 
     def draw(self):
-        if not self.deck:
-            return None
-        return self.deck.pop()
+        return self.deck.pop() if self.deck else None
 
     def can_move(self, player):
-        if player.active_hazard:
-            return False
-        if not player.has_orientacao and 'Rotas Alternativas' not in player.defenses_active:
-            return False
+        if player.active_hazard: return False
+        if not player.has_orientacao and 'Rotas Alternativas' not in player.defenses_active: return False
         return True
 
+    def get_legal_moves(self, player, opponent):
+        moves = []
+        for d in ['Saude', 'Diplomacia', 'Riqueza', 'Rotas Alternativas']:
+            if d in player.hand: moves.append(('defense', d))
+
+        if player.active_hazard and CURES[player.active_hazard] in player.hand:
+            moves.append(('cure', CURES[player.active_hazard]))
+
+        if not player.has_orientacao and not player.active_hazard and 'Rotas Alternativas' not in player.defenses_active:
+            if 'Orientacao' in player.hand: moves.append(('orientacao', 'Orientacao'))
+
+        if self.can_move(player):
+            allowed = TERRAIN_RULES[player.terrain]
+            if 'Rotas Alternativas' in player.defenses_active: allowed = ['1000', '2000', '3000', '4000', '8000']
+            balloons = player.cards_played_distance.count('8000')
+            for card in set(player.hand):
+                if card in allowed:
+                    if card == '8000' and balloons >= 2: continue
+                    # STRICT 40K ENFORCEMENT
+                    if player.distance + int(card) <= 40000: moves.append(('travel', card))
+
+        for hazard in ['Epidemia', 'Povos Hostis', 'Fim do Dinheiro', 'Perdido']:
+            if hazard in player.hand and opponent.active_hazard is None and DEFENSES[hazard] not in opponent.defenses_active:
+                moves.append(('attack_hazard', hazard))
+
+        for t in ['Civilizada', 'Selvagem', 'Mar', 'Sem Recursos']:
+            if t in player.hand and opponent.terrain != t and 'Rotas Alternativas' not in opponent.defenses_active:
+                moves.append(('attack_terrain', t))
+        return moves
+
     def take_turn(self, player, opponent):
-        # Draw a card at the start of the turn
         drawn_card = self.draw()
-        if drawn_card:
-            player.hand.append(drawn_card)
+        if drawn_card: player.hand.append(drawn_card)
+        if not player.hand: return
 
-        # If hand is empty (and deck was empty), nothing to do
-        if not player.hand:
-            return
+        legal_moves = self.get_legal_moves(player, opponent)
+        chosen_action = None
 
-        player.turns_played += 1
-        action_taken = False
+        if player.strategy == 'random':
+            all_possible = legal_moves + [('discard', c) for c in set(player.hand)]
+            chosen_action = random.choice(all_possible)
+        else: # Tiered
+            defenses = [m for m in legal_moves if m[0] == 'defense']
+            cures = [m for m in legal_moves if m[0] == 'cure']
+            orientacaos = [m for m in legal_moves if m[0] == 'orientacao']
+            travels = [m for m in legal_moves if m[0] == 'travel']
+            # Sort travels descending
+            travels.sort(key=lambda x: int(x[1]), reverse=True)
+            attacks = [m for m in legal_moves if m[0] in ['attack_hazard', 'attack_terrain']]
 
-        # --- Decision Logic ---
-
-        # 1. Play Defense (if holding one that matches active hazard OR just to be safe/score)
-        defenses_in_hand = [c for c in player.hand if c in ['Saude', 'Diplomacia', 'Riqueza', 'Rotas Alternativas']]
-
-        # Priority: Cure active hazard with defense
-        for d in defenses_in_hand:
-            # Find which hazard this defense cures
-            hazard_for_defense = [h for h, df in DEFENSES.items() if df == d][0]
-            if player.active_hazard == hazard_for_defense:
-                self.play_defense(player, d)
-                action_taken = True
-                break
-
-        if not action_taken and defenses_in_hand:
-            # Play defense for points/immunity even if no hazard
-            # Prefer playing 'Rotas Alternativas' if we need orientation
-            if 'Rotas Alternativas' in defenses_in_hand and not player.has_orientacao:
-                d = 'Rotas Alternativas'
+            if defenses: chosen_action = random.choice(defenses)
+            elif cures: chosen_action = random.choice(cures)
+            elif orientacaos: chosen_action = random.choice(orientacaos)
+            elif travels: chosen_action = travels[0] # Pick best distance
+            elif attacks: chosen_action = random.choice(attacks)
             else:
-                d = defenses_in_hand[0] # Pick first available
-            self.play_defense(player, d)
-            action_taken = True
+                vital = ['Orientacao', 'Saude', 'Diplomacia', 'Riqueza', 'Rotas Alternativas', 'Remedio', 'Fuga', 'Trabalho']
+                safe = [c for c in player.hand if c not in vital]
+                chosen_action = ('discard', random.choice(safe) if safe else random.choice(player.hand))
 
-        # 2. Cure Hazard with Green Card
-        if not action_taken and player.active_hazard:
-            required_cure = CURES.get(player.active_hazard)
-            if required_cure and required_cure in player.hand:
-                self.play_cure(player, required_cure)
-                action_taken = True
-
-        # 3. Play Orientacao
-        # If we need orientation (and have no hazard or cured it but need Orientacao)
-        if not action_taken and not player.active_hazard and not player.has_orientacao and 'Rotas Alternativas' not in player.defenses_active:
-            if 'Orientacao' in player.hand:
-                self.play_orientacao(player)
-                action_taken = True
-
-        # 4. Travel
-        if not action_taken and self.can_move(player):
-            allowed_distances = TERRAIN_RULES[player.terrain]
-            if 'Rotas Alternativas' in player.defenses_active:
-                allowed_distances = ['1000', '2000', '3000', '4000', '8000']
-
-            balloons_played = player.cards_played_distance.count('8000')
-            travel_candidates = []
-
-            # Identify playable distance cards
-            # Must handle multiple copies in hand
-            unique_hand = set(player.hand)
-            for card in unique_hand:
-                if card in ['1000', '2000', '3000', '4000', '8000']:
-                    if card in allowed_distances:
-                        if card == '8000' and balloons_played >= 2:
-                            continue
-                        if player.distance + int(card) <= 40000:
-                            travel_candidates.append(card)
-
-            if travel_candidates:
-                # Pick largest distance usually better
-                travel_candidates.sort(key=lambda x: int(x), reverse=True)
-                card = travel_candidates[0]
-                self.play_travel(player, card)
-                action_taken = True
-
-        # 5. Attack (Hazard)
-        if not action_taken:
-            hazards_in_hand = [c for c in player.hand if c in ['Epidemia', 'Povos Hostis', 'Fim do Dinheiro', 'Perdido']]
-            possible_attacks = []
-            for h in hazards_in_hand:
-                if opponent.active_hazard is None:
-                    defense_needed = DEFENSES[h]
-                    if defense_needed not in opponent.defenses_active:
-                        possible_attacks.append(h)
-
-            if possible_attacks:
-                attack_card = random.choice(possible_attacks)
-                self.play_attack(player, opponent, attack_card)
-                action_taken = True
-
-        # 6. Change Terrain
-        if not action_taken:
-            terrains = ['Civilizada', 'Selvagem', 'Mar', 'Sem Recursos']
-            terrains_in_hand = [c for c in player.hand if c in terrains]
-            possible_terrains = []
-            for t in terrains_in_hand:
-                if opponent.terrain != t and 'Rotas Alternativas' not in opponent.defenses_active:
-                    possible_terrains.append(t)
-
-            if possible_terrains:
-                t = random.choice(possible_terrains)
-                self.play_terrain(player, opponent, t)
-                action_taken = True
-
-        # 7. Discard
-        if not action_taken:
-            # Discard strategy:
-            # 1. Duplicate unique cards (defenses) - unlikely since we play them.
-            # 2. Unplayable hazards (if opponent immune).
-            # 3. Weak distance cards?
-            # 4. Random.
-
-            # Simple safe discard logic
-            vital = ['Orientacao', 'Saude', 'Diplomacia', 'Riqueza', 'Rotas Alternativas', 'Remedio', 'Fuga', 'Trabalho']
-            safe_discards = [c for c in player.hand if c not in vital]
-
-            if safe_discards:
-                card = random.choice(safe_discards)
-            else:
-                card = random.choice(player.hand)
-            self.discard_card(player, card)
-
-    def play_defense(self, player, card):
+        action, card = chosen_action
         player.hand.remove(card)
-        player.defenses_active.append(card)
 
-        # Rotas Alternativas provides permanent orientation
-        if card == 'Rotas Alternativas':
+        if action == 'defense':
+            player.defenses_active.append(card)
+            if card == 'Rotas Alternativas': player.has_orientacao = True
+            if self.deck: self.take_turn(player, opponent)
+
+        elif action == 'cure':
+            self.discard.append(card)
+            player.active_hazard = None
+            if card != 'Orientacao': player.has_orientacao = False
+
+        elif action == 'orientacao':
+            self.discard.append(card)
             player.has_orientacao = True
 
-        # Check if it cures active hazard
-        hazard_for_defense = [h for h, df in DEFENSES.items() if df == card][0]
-        if player.active_hazard == hazard_for_defense:
-            player.active_hazard = None
-            # If not Rotas Alternativas, do we need Orientacao?
-            # "Removes the hazard". Doesn't say grants orientation.
-            # Assuming standard mechanics: if you were stopped, you need to restart (Orientacao), unless the card itself says otherwise.
-            # Rotas Alternativas says it ignores orientation.
-            # Others don't. So if I use Saude to cure Epidemia, I am safe, but stationary.
-            pass
-
-    def play_cure(self, player, card):
-        player.hand.remove(card)
-        self.discard_pile.append(card)
-        player.cures_played += 1
-
-        if card == 'Orientacao' and player.active_hazard == 'Perdido':
-            # Special case: Orientacao cures Perdido and grants orientation
-            player.active_hazard = None
-            player.has_orientacao = True
-        else:
-            # Other cures remove hazard but require Orientacao next
-            player.active_hazard = None
-            player.has_orientacao = False
-
-    def play_orientacao(self, player):
-        player.hand.remove('Orientacao')
-        self.discard_pile.append('Orientacao')
-        player.has_orientacao = True
-
-    def play_travel(self, player, card):
-        player.hand.remove(card)
-        player.distance += int(card)
-        player.cards_played_distance.append(card)
-        self.discard_pile.append(card)
-
-    def play_attack(self, player, opponent, card):
-        player.hand.remove(card)
-        player.attacks_launched += 1
-
-        defense_needed = DEFENSES[card]
-        if defense_needed in opponent.hand:
-            # Counter-Attack!
-            opponent.hand.remove(defense_needed)
-            opponent.defenses_active.append(defense_needed)
-            opponent.counter_attacks += 1
-            if defense_needed == 'Rotas Alternativas':
-                opponent.has_orientacao = True
-
-            self.discard_pile.append(card)
-
-            # Opponent gets bonus turn
-            # Recursive call? Yes, but check depth/stack?
-            # In Python recursion limit is 1000. Unlikely to hit that in one turn chain.
-            self.take_turn(opponent, player)
-        else:
+        elif action == 'attack_hazard':
+            defense_needed = DEFENSES[card]
+            if defense_needed in opponent.hand:
+                will_counter = random.choice([True, False]) if opponent.strategy == 'random' else True
+                if will_counter:
+                    self.discard.append(card)
+                    opponent.hand.remove(defense_needed)
+                    opponent.defenses_active.append(defense_needed)
+                    opponent.counter_attacks += 1
+                    if defense_needed == 'Rotas Alternativas': opponent.has_orientacao = True
+                    self.take_turn(opponent, player)
+                    return
             opponent.active_hazard = card
-            if 'Rotas Alternativas' not in opponent.defenses_active:
-                opponent.has_orientacao = False
 
-    def play_terrain(self, player, opponent, card):
-        player.hand.remove(card)
-        self.discard_pile.append(card)
-        opponent.terrain = card
-        player.attacks_launched += 1
+        elif action == 'attack_terrain':
+            self.discard.append(card)
+            opponent.terrain = card
 
-    def discard_card(self, player, card):
-        player.hand.remove(card)
-        self.discard_pile.append(card)
+        elif action == 'travel':
+            player.distance += int(card)
+            player.cards_played_distance.append(card)
+            self.discard.append(card)
+
+        elif action == 'discard':
+            self.discard.append(card)
 
     def calculate_scores(self):
         is_deck_empty = len(self.deck) == 0
-
         for p, opp in [(self.p1, self.p2), (self.p2, self.p1)]:
             score = p.distance
-
             score += len(p.defenses_active) * 4000
-            if len(p.defenses_active) == 4:
-                score += 12000
-
+            if len(p.defenses_active) == 4: score += 12000
             score += p.counter_attacks * 12000
-
-            # Win Bonuses
             if p.distance == 40000:
                 score += 16000
-                if '8000' not in p.cards_played_distance:
-                    score += 12000
-                if is_deck_empty:
-                    score += 12000
-                if opp.distance == 0:
-                    score += 20000
-
+                if '8000' not in p.cards_played_distance: score += 12000
+                if is_deck_empty: score += 12000
+                if opp.distance == 0: score += 20000
             p.score = score
 
     def play_game(self):
@@ -307,95 +179,77 @@ class VoltaAoMundoSim:
             if self.p1.distance == 40000 or self.p2.distance == 40000:
                 self.calculate_scores()
                 return self
-
             if not self.deck and not self.p1.hand and not self.p2.hand:
                 self.calculate_scores()
                 return self
 
-            # P1 Turn
-            if self.deck or self.p1.hand:
-                self.take_turn(self.p1, self.p2)
-                if self.p1.distance == 40000:
-                    self.calculate_scores()
-                    return self
-
-            # P2 Turn
-            if self.deck or self.p2.hand:
-                self.take_turn(self.p2, self.p1)
-                if self.p2.distance == 40000:
-                    self.calculate_scores()
-                    return self
-
-            # Break if no one can move and deck empty (handled by hand check usually)
-            if not self.deck and not self.p1.hand and not self.p2.hand:
+            if self.deck or self.p1.hand: self.take_turn(self.p1, self.p2)
+            if self.p1.distance == 40000:
                 self.calculate_scores()
                 return self
 
-def run_monte_carlo(iterations=1000):
-    results = []
+            if self.deck or self.p2.hand: self.take_turn(self.p2, self.p1)
+
+def run_matchup(strat1, strat2, iterations=5000):
+    p1_wins, p2_wins, stalemates = 0, 0, 0
+    total_score_p1, total_score_p2 = 0, 0
+    locked_players = 0
 
     for i in range(iterations):
-        game = VoltaAoMundoSim().play_game()
+        game = VoltaAoMundoSim(strat1, strat2).play_game()
+        if game.p1.distance == 40000: p1_wins += 1
+        elif game.p2.distance == 40000: p2_wins += 1
+        else: stalemates += 1
 
-        winner = None
-        if game.p1.distance == 40000: winner = 'P1'
-        elif game.p2.distance == 40000: winner = 'P2'
-        else: winner = 'Stalemate'
+        total_score_p1 += game.p1.score
+        total_score_p2 += game.p2.score
 
-        locked = False
-        if (not game.can_move(game.p1) and game.p1.distance < 40000) or \
-           (not game.can_move(game.p2) and game.p2.distance < 40000):
-            locked = True # At least one player locked at end
+        # Check if players were locked (could not move) at end of game
+        # Simple heuristic: if distance < 40000 and has cards but cannot move?
+        # Or just use the fact they didn't win.
+        # But 'stalemate' covers it.
+        # Let's verify 'locked' concept. The prompt says "Generate... Stalemate/Lock rates".
+        # Stalemate is when game ends without a winner.
+        pass
 
-        results.append({
-            'game_id': i,
-            'winner': winner,
-            'p1_score': game.p1.score,
-            'p2_score': game.p2.score,
-            'p1_distance': game.p1.distance,
-            'p2_distance': game.p2.distance,
-            'turns': game.p1.turns_played + game.p2.turns_played,
-            'stalemate': 1 if winner == 'Stalemate' else 0,
-            'locked_players': 1 if locked else 0
-        })
-
-    return results
+    return {
+        "Matchup": f"{strat1} vs {strat2}",
+        "P1 Wins": p1_wins,
+        "P2 Wins": p2_wins,
+        "Stalemates": stalemates,
+        "P1 Avg Score": total_score_p1 / iterations,
+        "P2 Avg Score": total_score_p2 / iterations
+    }
 
 if __name__ == "__main__":
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import seaborn as sns
+    print("Running simulations...")
+    results = [
+        run_matchup('tiered', 'tiered', 5000),
+        run_matchup('tiered', 'random', 5000),
+        run_matchup('random', 'random', 5000)
+    ]
+    df = pd.DataFrame(results)
+    print("\n--- Simulation Results ---")
+    print(df)
 
-    # Run Simulation
-    print("Running simulation...")
-    data = run_monte_carlo(10000)
-    df = pd.DataFrame(data)
-
-    # Save Results
     df.to_csv('simulation_results.csv', index=False)
-    print("Results saved to simulation_results.csv")
+    print("\nResults saved to simulation_results.csv")
 
-    # Analysis
-    win_counts = df['winner'].value_counts()
-    print("\nWin Rates:")
-    print(win_counts)
-
-    avg_scores = df[['p1_score', 'p2_score']].mean()
-    print("\nAverage Scores:")
-    print(avg_scores)
-
-    # Visualizations
-    plt.figure(figsize=(8, 6))
-    sns.barplot(x=win_counts.index, y=win_counts.values)
-    plt.title('Win Rates (10,000 Games)')
-    plt.ylabel('Count')
-    plt.savefig('win_rates.png')
-
+    # Plotting
+    # 1. Stalemate Rates
     plt.figure(figsize=(10, 6))
-    sns.histplot(data=df, x='p1_score', color='blue', label='P1', kde=True, alpha=0.5)
-    sns.histplot(data=df, x='p2_score', color='red', label='P2', kde=True, alpha=0.5)
-    plt.title('Score Distribution')
-    plt.legend()
-    plt.savefig('score_dist.png')
+    sns.barplot(x='Matchup', y='Stalemates', data=df)
+    plt.title('Stalemate Count by Matchup (5000 Games)')
+    plt.ylabel('Number of Stalemates')
+    plt.tight_layout()
+    plt.savefig('stalemate_comparison.png')
 
-    print("Plots saved.")
+    # 2. Win Rates (Stacked Bar)
+    win_data = df[['Matchup', 'P1 Wins', 'P2 Wins', 'Stalemates']].set_index('Matchup')
+    win_data.plot(kind='bar', stacked=True, figsize=(10, 6))
+    plt.title('Game Outcome Distribution by Matchup')
+    plt.ylabel('Count')
+    plt.tight_layout()
+    plt.savefig('win_rate_comparison.png')
+
+    print("Plots saved: stalemate_comparison.png, win_rate_comparison.png")

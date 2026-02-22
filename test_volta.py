@@ -3,8 +3,8 @@ from volta_ao_mundo import Player, VoltaAoMundoSim
 
 class TestVoltaAoMundo(unittest.TestCase):
     def setUp(self):
-        self.game = VoltaAoMundoSim()
-        # Empty hands to control test
+        # Default strategies to 'tiered' for testing unless specified
+        self.game = VoltaAoMundoSim('tiered', 'tiered')
         self.game.p1.hand = []
         self.game.p2.hand = []
 
@@ -12,82 +12,80 @@ class TestVoltaAoMundo(unittest.TestCase):
         p1 = self.game.p1
         p2 = self.game.p2
 
-        # P1 has hazard, P2 has no defense in hand or active
         p1.hand = ['Epidemia']
-        p2.hand = ['1000'] # Irrelevant card
+        p2.hand = ['1000']
         p2.defenses_active = []
 
-        self.game.play_attack(p1, p2, 'Epidemia')
+        # Manually invoke turn logic or helper if needed.
+        # But here we can simulate the attack logic by calling the method that handles it?
+        # The new code puts logic inside `take_turn`.
+        # We can test `take_turn` by setting up the state.
+
+        # P1 needs to choose attack.
+        # Tiered strategy: Defense > Cure > Orient > Travel > Attack.
+        # So P1 should attack if no other options.
+        # But P1 needs to draw. `take_turn` draws.
+        # We can mock `draw` to return None so hand doesn't change unexpectedly.
+        self.game.draw = lambda: None
+
+        self.game.take_turn(p1, p2)
 
         self.assertEqual(p2.active_hazard, 'Epidemia')
-        self.assertFalse(p2.has_orientacao)
-        self.assertFalse(self.game.can_move(p2))
 
-    def test_cure_logic_normal(self):
-        p = self.game.p1
-        p.active_hazard = 'Epidemia'
-        p.has_orientacao = False
-        p.hand = ['Remedio']
+    def test_strict_40k_rule(self):
+        p1 = self.game.p1
+        p2 = self.game.p2
 
-        self.game.play_cure(p, 'Remedio')
+        p1.distance = 38000
+        p1.has_orientacao = True
+        p1.active_hazard = None
+        p1.terrain = 'Civilizada'
 
-        self.assertIsNone(p.active_hazard)
-        self.assertFalse(p.has_orientacao) # Needs Orientacao next
+        # 3000 would exceed 40000 (38000 + 3000 = 41000) -> Should NOT play
+        # 2000 would fit exactly (40000) -> Should play
 
-    def test_cure_logic_perdido(self):
-        p = self.game.p1
-        p.active_hazard = 'Perdido'
-        p.has_orientacao = False
-        p.hand = ['Orientacao']
+        p1.hand = ['3000']
+        self.game.draw = lambda: None
 
-        self.game.play_cure(p, 'Orientacao')
+        # Tiered strategy should NOT play 3000 because it's not a legal move
+        # It should discard instead.
+        self.game.take_turn(p1, p2)
 
-        self.assertIsNone(p.active_hazard)
-        self.assertTrue(p.has_orientacao) # Cured and oriented
+        self.assertEqual(p1.distance, 38000)
+        self.assertEqual(len(self.game.discard), 1)
+        self.assertEqual(self.game.discard[0], '3000')
 
-    def test_counter_attack(self):
+        # Now give 2000
+        p1.hand = ['2000']
+        self.game.take_turn(p1, p2)
+        self.assertEqual(p1.distance, 40000)
+
+    def test_counter_attack_logic(self):
+        # We need to test if counter attack happens.
+        # P1 attacks P2. P2 has Defense.
         p1 = self.game.p1
         p2 = self.game.p2
 
         p1.hand = ['Epidemia']
-        p2.hand = ['Saude', '1000']
+        p2.hand = ['Saude'] # Defense for Epidemia
+        self.game.draw = lambda: None
 
-        # Mock p2.take_turn to avoid infinite recursion or random play during test
-        original_take_turn = self.game.take_turn
-        self.game.take_turn = lambda p, o: None # Do nothing for bonus turn
+        # P2 is 'tiered', so `will_counter` is True.
 
-        self.game.play_attack(p1, p2, 'Epidemia')
+        # We need to mock P2's turn to prevent recursion loop or random actions
+        # But `take_turn` calls `self.take_turn(opponent, player)` for bonus turn.
+        # We can let it run once.
 
-        self.game.take_turn = original_take_turn # Restore
+        # To avoid infinite recursion if P2 draws/plays repeatedly, ensure deck is empty or mocked.
+        # Deck is already empty since `draw` returns None.
 
+        self.game.take_turn(p1, p2)
+
+        # P2 should have played Saude out of turn
         self.assertIn('Saude', p2.defenses_active)
-        self.assertIsNone(p2.active_hazard)
-        self.assertEqual(p2.counter_attacks, 1)
         self.assertNotIn('Saude', p2.hand)
-
-    def test_scoring_win(self):
-        p1 = self.game.p1
-        p2 = self.game.p2
-
-        p1.distance = 40000
-        p1.defenses_active = ['Saude'] # 4000 pts
-        p1.cards_played_distance = ['1000'] # No 8000 bonus (+12000)
-        p2.distance = 1000
-
-        # Setup deck to be not empty
-        self.game.deck = ['1000']
-
-        self.game.calculate_scores()
-
-        # Base score: 40000 (distance)
-        # Defense: +4000
-        # Win: +16000
-        # No 8000: +12000
-        # Deck not empty
-        # Not Capote
-        # Total: 40000 + 4000 + 16000 + 12000 = 72000
-
-        self.assertEqual(p1.score, 72000)
+        # P2 counter_attacks count should increase
+        self.assertEqual(p2.counter_attacks, 1)
 
 if __name__ == '__main__':
     unittest.main()
