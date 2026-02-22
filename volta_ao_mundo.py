@@ -6,7 +6,7 @@ import seaborn as sns
 # --- GAME DATA & DEFINITIONS ---
 DECK_COMP_DICT = {
     '1000': 10, '2000': 10, '3000': 10, '4000': 12, '8000': 4,
-    'Orientacao': 14, 'Trabalho': 6, 'Fuga': 6, 'Remedio': 6,
+    'Orientacao': 10, 'Trabalho': 6, 'Fuga': 6, 'Remedio': 6,
     'Perdido': 5, 'Fim do Dinheiro': 3, 'Povos Hostis': 3, 'Epidemia': 3,
     'Civilizada': 5, 'Selvagem': 4, 'Mar': 4, 'Sem Recursos': 3,
     'Saude': 1, 'Diplomacia': 1, 'Riqueza': 1, 'Rotas Alternativas': 1
@@ -54,7 +54,7 @@ class VoltaAoMundoSim:
 
     def can_move(self, player):
         if player.active_hazard: return False
-        if not player.has_orientacao and 'Rotas Alternativas' not in player.defenses_active: return False
+        # Orientacao no longer required to move unless hazard specifically stops you (Perdido logic handled by active_hazard)
         return True
 
     def get_legal_moves(self, player, opponent):
@@ -65,8 +65,11 @@ class VoltaAoMundoSim:
         if player.active_hazard and CURES[player.active_hazard] in player.hand:
             moves.append(('cure', CURES[player.active_hazard]))
 
-        if not player.has_orientacao and not player.active_hazard and 'Rotas Alternativas' not in player.defenses_active:
-            if 'Orientacao' in player.hand: moves.append(('orientacao', 'Orientacao'))
+        # Still need Orientacao to cure Perdido, or if player wants to play it (maybe for points/discard/stats?)
+        # But strictly speaking, if not required for movement, is it playable as an action?
+        # Usually yes, as a "green card" action.
+        if 'Orientacao' in player.hand:
+            moves.append(('orientacao', 'Orientacao'))
 
         if self.can_move(player):
             allowed = TERRAIN_RULES[player.terrain]

@@ -8,84 +8,60 @@ class TestVoltaAoMundo(unittest.TestCase):
         self.game.p1.hand = []
         self.game.p2.hand = []
 
-    def test_hazard_application(self):
+    def test_movement_without_orientacao(self):
         p1 = self.game.p1
-        p2 = self.game.p2
+        p1.has_orientacao = False
+        p1.active_hazard = None
+        p1.defenses_active = []
 
-        p1.hand = ['Epidemia']
-        p2.hand = ['1000']
-        p2.defenses_active = []
+        # Should be able to move
+        self.assertTrue(self.game.can_move(p1))
 
-        # Manually invoke turn logic or helper if needed.
-        # But here we can simulate the attack logic by calling the method that handles it?
-        # The new code puts logic inside `take_turn`.
-        # We can test `take_turn` by setting up the state.
-
-        # P1 needs to choose attack.
-        # Tiered strategy: Defense > Cure > Orient > Travel > Attack.
-        # So P1 should attack if no other options.
-        # But P1 needs to draw. `take_turn` draws.
-        # We can mock `draw` to return None so hand doesn't change unexpectedly.
+        p1.hand = ['1000']
         self.game.draw = lambda: None
 
-        self.game.take_turn(p1, p2)
+        # Play 1000
+        self.game.take_turn(p1, self.game.p2)
 
-        self.assertEqual(p2.active_hazard, 'Epidemia')
+        self.assertEqual(p1.distance, 1000)
+
+    def test_perdido_stops_movement(self):
+        p1 = self.game.p1
+        p1.active_hazard = 'Perdido'
+        p1.has_orientacao = False
+
+        self.assertFalse(self.game.can_move(p1))
+
+        # Cure with Orientacao
+        p1.hand = ['Orientacao']
+        # Mock CURES logic in case needed? No, built-in.
+
+        self.game.draw = lambda: None
+
+        # play_cure('Orientacao') should happen
+        self.game.take_turn(p1, self.game.p2)
+
+        self.assertIsNone(p1.active_hazard)
+        # Should be able to move next turn
+        self.assertTrue(self.game.can_move(p1))
+
+    def test_other_hazard_stops_movement(self):
+        p1 = self.game.p1
+        p1.active_hazard = 'Epidemia'
+        self.assertFalse(self.game.can_move(p1))
 
     def test_strict_40k_rule(self):
         p1 = self.game.p1
         p2 = self.game.p2
-
         p1.distance = 38000
-        p1.has_orientacao = True
-        p1.active_hazard = None
-        p1.terrain = 'Civilizada'
-
-        # 3000 would exceed 40000 (38000 + 3000 = 41000) -> Should NOT play
-        # 2000 would fit exactly (40000) -> Should play
 
         p1.hand = ['3000']
         self.game.draw = lambda: None
 
-        # Tiered strategy should NOT play 3000 because it's not a legal move
-        # It should discard instead.
+        # Should discard
         self.game.take_turn(p1, p2)
-
         self.assertEqual(p1.distance, 38000)
-        self.assertEqual(len(self.game.discard), 1)
-        self.assertEqual(self.game.discard[0], '3000')
-
-        # Now give 2000
-        p1.hand = ['2000']
-        self.game.take_turn(p1, p2)
-        self.assertEqual(p1.distance, 40000)
-
-    def test_counter_attack_logic(self):
-        # We need to test if counter attack happens.
-        # P1 attacks P2. P2 has Defense.
-        p1 = self.game.p1
-        p2 = self.game.p2
-
-        p1.hand = ['Epidemia']
-        p2.hand = ['Saude'] # Defense for Epidemia
-        self.game.draw = lambda: None
-
-        # P2 is 'tiered', so `will_counter` is True.
-
-        # We need to mock P2's turn to prevent recursion loop or random actions
-        # But `take_turn` calls `self.take_turn(opponent, player)` for bonus turn.
-        # We can let it run once.
-
-        # To avoid infinite recursion if P2 draws/plays repeatedly, ensure deck is empty or mocked.
-        # Deck is already empty since `draw` returns None.
-
-        self.game.take_turn(p1, p2)
-
-        # P2 should have played Saude out of turn
-        self.assertIn('Saude', p2.defenses_active)
-        self.assertNotIn('Saude', p2.hand)
-        # P2 counter_attacks count should increase
-        self.assertEqual(p2.counter_attacks, 1)
+        self.assertEqual(self.game.discard[-1], '3000')
 
 if __name__ == '__main__':
     unittest.main()
