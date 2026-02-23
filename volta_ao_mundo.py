@@ -6,8 +6,8 @@ import seaborn as sns
 # --- GAME DATA & DEFINITIONS ---
 DECK_COMP_DICT = {
     '1000': 10, '2000': 10, '3000': 10, '4000': 12, '8000': 4,
-    'Orientacao': 10, 'Trabalho': 6, 'Fuga': 6, 'Remedio': 6,
-    'Perdido': 5, 'Fim do Dinheiro': 3, 'Povos Hostis': 3, 'Epidemia': 3,
+    'Orientacao': 6, 'Trabalho': 6, 'Fuga': 6, 'Remedio': 6,
+    'Perdido': 3, 'Fim do Dinheiro': 3, 'Povos Hostis': 3, 'Epidemia': 3,
     'Civilizada': 5, 'Selvagem': 4, 'Mar': 4, 'Sem Recursos': 3,
     'Saude': 1, 'Diplomacia': 1, 'Riqueza': 1, 'Rotas Alternativas': 1
 }
@@ -40,6 +40,8 @@ class VoltaAoMundoSim:
         self.deck = []
         for card, count in DECK_COMP_DICT.items():
             self.deck.extend([card] * count)
+        # Verify deck size
+        # print(f"Deck size: {len(self.deck)}")
         random.shuffle(self.deck)
         self.discard = []
         self.p1 = Player(f"P1 ({p1_strat})", p1_strat)
